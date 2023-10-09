@@ -1,5 +1,9 @@
 
 
+[![DOI](https://zenodo.org/badge/702620863.svg)](https://zenodo.org/badge/latestdoi/702620863)
+
+
+
 This repo contains code to reproduce the analyses in "Temporal changes in the individual size distribution modulate the long-term trends of biomass, and energy use of North American breeding bird communities", by Renata Diaz and S. K. Morgan Ernest, in press at _Global Ecology and Biogeography_. 
 
 This code depends on the following R packages. If you do not have them installed, you can install them by running `install.packages("<PACKAGE_NAME>")` in R. 
