@@ -2,12 +2,12 @@
 title: "Appendix S3"
 author: "Statistical comparisons of distributions in Figure 4."
 output:
-  github_document:
-    df_print: kable
   # word_document:
   #   reference_docx: template_doc.docx
   #   df_print: kable
   #   toc: yes
+  html_document:
+    df_print: kable
 csl: ref_template.csl
 bibliography: refs.bib
 ---

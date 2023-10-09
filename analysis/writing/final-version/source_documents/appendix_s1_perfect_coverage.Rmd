@@ -2,12 +2,12 @@
 title: Appendix S1
 author: Figures and tables from the main analysis, restricted to 199 routes with perfect temporal coverage (i.e. no missing time steps). Results are qualitatively the same as for the main analysis (739 routes, with a minimum of 27 of 30 time steps sampled for each route).
 output:
-  word_document:
-    reference_docx: template_doc.docx
-    df_print: kable
-    toc: yes
-  # html_document:
+  # word_document:
+  #   reference_docx: template_doc.docx
   #   df_print: kable
+  #   toc: yes
+  html_document:
+    df_print: kable
   # pdf_document: 
   #   df_print: kable
   # github_document:

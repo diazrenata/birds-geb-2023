@@ -9,6 +9,7 @@ dplyr
 tidyr
 vegan
 here
+maps
 mclust
 MuMIn
 R.utils
