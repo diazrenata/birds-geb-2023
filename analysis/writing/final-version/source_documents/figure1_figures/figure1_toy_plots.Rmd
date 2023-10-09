@@ -1,0 +1,290 @@
+---
+title: "toy_plots"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = F, error = F)
+library(ggplot2)
+library(birdsize)
+library(dplyr)
+library(multipanelfigure)
+theme_set(theme_bw())
+set.seed(1989)
+```
+
+
+This is code to re-render the figures shown in Figure 1. 
+
+```{r}
+
+toy_sp_dat <- data.frame(species = c("Species A", "Species B"), mean_size = c(25, 50), sd_size = c(1.7, 3.5))
+
+toy_abund_dat <- data.frame(Year = c(1:30, 1:30), 
+                            species = c(rep("Species B", times = 30), rep("Species A", times = 30)),
+                            abund = round(c(seq(50, 950, length.out = 30), seq(950, 50, length.out = 30)))) %>%
+  mutate(abund = round(abund * runif(min = .5, max = 1, n = 60)))
+
+toy_params_dat <- left_join(toy_abund_dat, toy_sp_dat) %>%
+  distinct()
+
+toy_masses <- apply(as.matrix(toy_params_dat), MARGIN = 1, FUN = function(x) data.frame(Year = x[1], species = x[2], mass = rnorm(as.numeric(x[3]), as.numeric(x[4]), as.numeric(x[5]))), simplify = F)
+
+toy_masses <- bind_rows(toy_masses)
+
+```
+
+
+
+```{r}
+
+toy_e <- toy_masses %>%
+  mutate(b = birdsize:::individual_metabolic_rate(mass)) 
+
+
+toy_totals_wide <- toy_e %>%
+  mutate(Year= as.numeric(Year)) %>%
+  group_by(Year) %>%
+  summarize(Abundance = dplyr::n(),
+            Biomass = sum(mass),
+            Energy = sum(b))
+
+dummy_dat = toy_totals_wide %>%
+  mutate(Abundance = NA,
+         Biomass = NA,
+         Energy = NA,
+         Dynamics = "Null")
+
+toy_totals_long <- toy_totals_wide %>%
+  tidyr::pivot_longer(-Year, names_to = "Variable", values_to = "Value")
+
+
+
+toy_totals_wide <- toy_totals_wide %>%
+  mutate(Dynamics = "Observed")# %>%
+  #bind_rows(dummy_dat)
+```
+
+
+```{r, fig.dim =c(6,3)}
+
+relabund <- toy_abund_dat %>%
+  group_by(Year) %>%
+  mutate(total_n = sum(abund)) %>%
+  ungroup() %>%
+  mutate(relabund = abund/total_n) %>%
+  mutate(Species = species)
+
+abund_over_time_plot = ggplot(relabund, aes(Year, abund, color = Species, fill = Species)) +
+  geom_col(position = "stack", width = .8) +
+  # scale_color_viridis_d(option = "cividis", end = .8) +
+  # scale_fill_viridis_d(option = "cividis", end = .8) +
+  scale_fill_grey(end = .8, start = .2) +
+  scale_color_grey(end = .8, start = .2) +
+  ylab("Abundance") +
+  scale_x_continuous(breaks = seq(1:30)) +
+ # scale_y_continuous(sec.axis = sec_axis( trans=~./1000, name="Relative abundance")) +
+  theme(legend.position = "none", text = element_text(size =8)) +
+  ggtitle("Observed species' abundances over time")
+
+abund_over_time_plot
+
+
+
+
+```
+
+```{r}
+
+ggsave(abund_over_time_plot, file = "obs_species_abunds.jpg", width = 100, height = 40, units = "mm" )
+
+```
+
+```{r, fig.dim = c(3.5,3)}
+
+mean_relabund = relabund %>%
+  group_by(Species) %>%
+  summarize(mrelabund = mean(relabund)) %>%
+  ungroup() %>%
+  mutate(Year = "Time-averaged")
+  
+
+```
+
+
+```{r}
+
+
+random_abunds <- list()
+
+for(i in 1:30) {
+  
+  these_draws = data.frame(Year = i, 
+    Species = sample(c("Species A", "Species B"), size = relabund$total_n[i], prob = c(mean_relabund$mrelabund), replace= T)) %>%
+     group_by(Species, Year) %>%
+    summarize(abund = dplyr::n())
+  
+  random_abunds[[i]] = these_draws
+    
+}
+
+random_abunds <- dplyr::bind_rows(random_abunds)
+```
+
+```{r, fig.dim = c(6,3)}
+
+
+nullabund_over_time_plot = ggplot(random_abunds, aes(Year, abund, color = Species, fill = Species)) +
+  geom_col(position = "stack", width = .8) +
+  # scale_color_viridis_d(option = 'cividis', end = .8) +
+  # scale_fill_viridis_d(option = 'cividis', end = .8) +
+  scale_fill_grey(end = .8, start = .2) +
+  scale_color_grey(end = .8, start = .2) +
+  ylab("Abundance") +
+  scale_x_continuous(breaks = seq(1:30)) +
+  #scale_y_continuous(sec.axis = sec_axis( trans=~./1000, name="Relative abundance")) +
+  theme(legend.position = "none", text = element_text(size =8 )) +
+  ggtitle("Null model species' abundances over time")
+
+nullabund_over_time_plot
+
+```
+
+```{r}
+ggsave(nullabund_over_time_plot, file = "null_species_abunds.jpg", width = 100, height = 40, units = "mm" )
+
+```
+
+```{r}
+
+
+
+null_params_dat <- left_join(random_abunds, toy_sp_dat, by = c("Species" = "species")) %>%
+  distinct()
+
+null_masses <- apply(as.matrix(null_params_dat), MARGIN = 1, FUN = function(x) data.frame(Year = x[2], species = x[1], mass = rnorm(as.numeric(x[3]), as.numeric(x[4]), as.numeric(x[5]))), simplify = F)
+
+null_masses <- dplyr::bind_rows(null_masses)
+
+null_e <- null_masses %>%
+  mutate(b = birdsize:::individual_metabolic_rate(mass)) 
+
+
+
+null_totals_wide <- null_e %>%
+  mutate(Year= as.numeric(Year)) %>%
+  group_by(Year) %>%
+  summarize(Abundance = dplyr::n(),
+            Biomass = sum(mass),
+            Energy = sum(b))
+ndummy_dat = null_totals_wide %>%
+  mutate(Abundance = NA,
+         Biomass = NA,
+         Energy = NA,
+         Dynamics = "Observed")
+
+null_totals_long <- null_totals_wide %>%
+  tidyr::pivot_longer(-Year, names_to = "Variable", values_to = "Value")
+
+
+
+null_totals_wide <- null_totals_wide %>%
+  mutate(Dynamics = "Null") #%>%
+ # bind_rows(ndummy_dat)
+```
+
+```{r}
+
+
+b_a <- ggplot(null_totals_wide, aes(Year, Abundance, group = Dynamics)) +
+  geom_point(data = toy_totals_wide, color = "darkgreen", alpha = 1) +
+  geom_line(data = toy_totals_wide, color = "darkgreen", alpha = 1) +
+   geom_point(color = "orange", alpha = .5) +
+  geom_line(color = 'orange', alpha = .5) +
+    ggtitle("Abundance") +
+  ylim(0, max(null_totals_wide$Abundance) +5 ) 
+
+b_b <- ggplot(null_totals_wide, aes(Year, Biomass)) +
+ geom_point(color = "orange") +
+  geom_line(color = 'orange') +
+  geom_point(data = toy_totals_wide, color = "darkgreen", alpha = 1) +
+  geom_line(data = toy_totals_wide, color = "darkgreen", alpha = 1) +
+      ggtitle("Biomass") +
+  ylim(0, max(toy_totals_wide$Biomass) +5 ) +
+  theme(legend.position = "none")
+
+
+b_e <- ggplot(null_totals_wide, aes(Year, Energy)) +
+  geom_point(color = "orange") +
+  geom_line(color = 'orange') +
+  geom_point(data = toy_totals_wide, color = "darkgreen", alpha = 1) +
+  geom_line(data = toy_totals_wide, color = "darkgreen", alpha = 1) +
+  ggtitle("Energy") +
+  ylim(0, max(toy_totals_wide$Energy) +5 ) 
+
+
+both_dyn_plot2 <- multi_panel_figure(width = c(60, 60, 60), height = 50, rows = 1,units = "mm", panel_label_type = "none") %>%
+ fill_panel(b_a) %>%
+  fill_panel(b_b) %>%
+  fill_panel(b_e)
+both_dyn_plot2
+ggsave(both_dyn_plot2, file = "both_dynamics2.jpg", width = 200, height = 40, units = 'mm')
+
+
+```
+
+
+
+```{r, fig.dim = c(6,4)}
+
+obs_begin_isd = toy_masses %>%
+  filter(as.numeric(Year) %in% 1:5) %>%
+  mutate(Timeperiod = "First 5 years")
+obs_end_isd = toy_masses %>%
+  filter(as.numeric(Year) %in% 26:30) %>%
+  mutate(Timeperiod = "Last 5 years")
+
+
+
+null_begin_isd = null_masses %>%
+  filter(as.numeric(Year) %in% 1:5) %>%
+  mutate(Timeperiod = "First 5 years")
+null_end_isd = null_masses %>%
+  filter(as.numeric(Year) %in% 26:30) %>%
+  mutate(Timeperiod = "Last 5 years")
+
+```
+
+```{r}
+
+obs_hists_dat <- bind_rows(obs_begin_isd, obs_end_isd) 
+
+ohists <- ggplot(obs_hists_dat, aes(mass)) +
+  geom_histogram(fill = 'darkgreen') +
+  facet_wrap(vars(Timeperiod)) +
+  xlab("Body size (g)") +
+  ylab("Number of individuals") +
+  theme(text =element_text(size = 8)) +
+  ggtitle("'Observed' ISDs: First and last 5-year periods")
+
+
+null_hists_dat <- bind_rows(null_begin_isd, null_end_isd) 
+
+nhists <- ggplot(null_hists_dat, aes(mass)) +
+  geom_histogram(fill = 'orange') +
+  facet_wrap(vars(Timeperiod)) +
+  xlab("Body size (g)") +
+  ylab("Number of individuals") +
+  theme(text =element_text(size = 8)) +
+  ggtitle("'Null' ISDs: First and last 5-year periods")
+
+ohists
+nhists
+```
+
+```{r}
+
+ggsave(ohists, file = "obs_hists.jpg", width = 85, height = 40, units = 'mm')
+ggsave(nhists, file = "n_hists.jpg", width = 85, height = 40, units = 'mm')
+
+```

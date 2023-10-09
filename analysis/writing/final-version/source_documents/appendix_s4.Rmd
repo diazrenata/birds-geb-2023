@@ -1,0 +1,163 @@
+---
+title: "Appendix S4"
+author: "Map of routes with different model types."
+output:
+ github_document:
+    df_print: kable
+# word_document:
+  #   reference_docx: template_doc.docx
+  #   toc: true
+csl: ref_template.csl
+bibliography: refs.bib
+---
+\newpage
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, include = T, results = T, message = F, warning = F, eval = T, fig.dim = c(4,4))
+library(dplyr)
+library(multipanelfigure)
+library(ggplot2)
+theme_set(theme_bw())
+R.utils::sourceDirectory(here::here("R"))
+
+```
+
+```{r load results and filter to desired temporal coverage}
+
+desired_routes <- read.csv(here::here("analysis", "supporting_data", "ninetypercent_coverage_1988_2018.csv"), stringsAsFactors = F)
+
+all_sims <- readRDS(here::here("analysis", "results", "all_sims.RDS"))
+all_preds_b <- readRDS(here::here("analysis", "results", "all_preds_b.RDS"))
+all_aics_b <- readRDS(here::here("analysis", "results", "all_aics_b.RDS"))
+all_preds_e <- readRDS(here::here("analysis", "results", "all_preds_e.RDS"))
+all_aics_e <- readRDS(here::here("analysis", "results", "all_aics_e.RDS"))
+all_cs_compares <- readRDS(here::here("analysis", "results", "all_cs_compares.RDS"))
+
+all_sims <- all_sims %>%
+  filter(matssname %in% desired_routes$matssname)
+
+all_preds_b <- all_preds_b %>%
+  filter(matssname %in% desired_routes$matssname)
+
+all_aics_b <- all_aics_b %>%
+  filter(matssname %in% desired_routes$matssname)
+
+all_preds_e <- all_preds_e %>%
+  filter(matssname %in% desired_routes$matssname)
+
+all_aics_e <- all_aics_e %>%
+  filter(matssname %in% desired_routes$matssname)
+
+all_cs_compares <- all_cs_compares %>%
+  filter(matssname %in% desired_routes$matssname)
+
+```
+
+```{r process biomass results}
+
+# Select the best-fitting model for each route using AICc (simplest model with an AICc score within two units of the minimum)
+# all_aics contains the AIC and AICc scores for every model fit to each route.
+
+winning_aics <- all_aics_b %>%
+  filter(model_family == "Gamma") %>% # I fit both Gamma and Gaussian models. The Gaussian are easier to interpret (slope terms can be read out directly) but are less strictly appropriate for strictly-positive biomass/energy use data.
+  group_by(matssname, model_family) %>%
+  mutate(minAICc = min(model_AICc)) %>% # identify best AICc
+  mutate(deltaAICc = minAICc - model_AICc)  %>% # deltaAICc is the difference between each model's AICc and the best AICc for that pool
+  filter(deltaAICc > -2) %>% # use 2 as a rule of thumb cutoff 
+  arrange(matssname, modelcomplexity) %>% # rank by model complexity. 1 is simplest, 4 is most complex.
+  mutate(rank = row_number()) %>% 
+  filter(rank == 1) %>% # select the simplest model with deltaAICc within 2 of the best
+  ungroup()
+
+
+
+
+```
+
+
+```{r process energy results}
+
+
+winning_aics_energy <- all_aics_e %>%
+  filter(model_family == "Gamma") %>% # I fit both Gamma and Gaussian models. The Gaussian are easier to interpret (slope terms can be read out directly) but are less strictly appropriate for strictly-positive biomass/energy use data.
+  group_by(matssname) %>%
+  mutate(minAICc = min(model_AICc)) %>% # identify best AICc
+  mutate(deltaAICc = minAICc - model_AICc)  %>% # deltaAICc is the difference between each model's AICc and the best AICc for that pool
+  filter(deltaAICc > -2) %>% # use 2 as a rule of thumb cutoff 
+  arrange(matssname, modelcomplexity) %>% # rank by model complexity. 1 is simplest, 4 is most complex.
+  mutate(rank = row_number()) %>% 
+  filter(rank == 1) %>% # select the simplest model with deltaAICc within 2 of the best
+  ungroup()
+
+
+```
+
+# Appendix S4 Figure 1
+
+```{r, fig.dim = c(8,6)}
+
+
+
+places <- map_data("world") %>%
+  filter(region %in% c("USA", "Canada")) %>%
+  filter(long < 0)
+
+
+route_locs_b <- all_sims %>%
+  select(countrynum, statenum, route, routename, latitude, longitude, matssname) %>%
+  distinct() %>%
+  left_join(winning_aics)  %>%
+  mutate(`Best model type` = ifelse(modelcomplexity == 1, "Intercept-only", ifelse(modelcomplexity == 2, "Same trend for null and observed", "Different trends for null and observed"))) %>%
+  mutate(`Best model type` = ordered(`Best model type`, levels = c( "Different trends for null and observed", "Same trend for null and observed", "Intercept-only")))
+
+
+ggplot(places, aes(long, lat)) +
+  geom_path(aes(group = group)) +
+  geom_point(data = route_locs_b, aes(longitude, latitude, color = `Best model type`))  + scale_color_viridis_d(option = "magma", end = .8, direction = -1)  +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  theme_void() +
+    theme(legend.position = c(.2, .3), legend.direction = "vertical") +
+  ggtitle("Best-fitting model types (biomass)")
+
+
+
+route_locs_e <- all_sims %>%
+  select(countrynum, statenum, route, routename, latitude, longitude, matssname) %>%
+  distinct() %>%
+  left_join(winning_aics_energy)  %>%
+  mutate(`Best model type` = ifelse(modelcomplexity == 1, "Intercept-only", ifelse(modelcomplexity == 2, "Same trend for null and observed", "Different trends for null and observed"))) %>%
+  mutate(`Best model type` = ordered(`Best model type`, levels = c( "Different trends for null and observed", "Same trend for null and observed", "Intercept-only")))
+
+```
+
+
+#### Appendix S4 Figure 1
+
+Map of Breeding Bird Survey (@pardieck2019) routes used in this study, colored according to the best-fitting model type for biomass. 
+
+\newpage
+# Appendix S4 Figure 2
+
+```{r, fig.dim = c(8,6)}
+ggplot(places, aes(long, lat)) +
+  geom_path(aes(group = group)) +
+  geom_point(data = route_locs_e, aes(longitude, latitude, color = `Best model type`))  + scale_color_viridis_d(option = "magma", end = .8, direction = -1)  +
+  xlab("Longitude") +
+  ylab("Latitude") +
+  theme_void() +
+    theme(legend.position = c(.2,.3), legend.direction = "vertical") +
+  ggtitle("Best-fitting model types (energy use)")
+
+
+
+```
+
+
+#### Appendix S4 Figure 2
+
+Map of Breeding Bird Survey (@pardieck2019) routes used in this study, colored according to the best-fitting model type for energy use. 
+
+
+\newpage
+# References

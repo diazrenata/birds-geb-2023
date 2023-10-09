@@ -1,0 +1,11 @@
+These data are from the 2019 release of the Breeding Bird Survey.
+
+They were downloaded using the R packages `rdataretriever` and `MATSS`.
+
+## Citations
+
+Pardieck, K.L., Ziolkowski Jr., D.J., Lutmerding, M., Aponte, V., and Hudson, M-A.R., 2019, North American Breeding Bird Survey Dataset 1966 - 2018 (ver. 2018.0): U.S. Geological Survey, Patuxent Wildlife Research Center, https://doi.org/10.5066/P9HE8XYJ.
+
+Senyondo et al., (2021). Rdataretriever: R Interface to the Data Retriever. Journal of Open Source Software, 6(57), 2800, https://doi.org/10.21105/joss.02800
+
+Hao Ye, Ellen K. Bledsoe, Renata Diaz, S. K. Morgan Ernest, Juniper L. Simonis, Ethan P. White, & Glenda M. Yenni. (2020, May 13). Macroecological Analyses of Time Series Structure (Version v0.3.2). Zenodo. http://doi.org/10.5281/zenodo.3823768

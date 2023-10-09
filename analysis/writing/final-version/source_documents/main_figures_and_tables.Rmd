@@ -1,0 +1,390 @@
+---
+output:
+  # word_document:
+  #   reference_docx: template_doc.docx
+  #   df_print: kable
+  #   toc: true
+  html_document:
+    df_print: kable
+  # pdf_document: 
+  #   df_print: kable
+  # github_document:
+  #   df_print: kable
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, include = T, results = T, message = F, warning = F, eval = T, fig.dim = c(4,4))
+library(dplyr)
+library(multipanelfigure)
+library(ggplot2)
+theme_set(theme_bw())
+
+R.utils::sourceDirectory(here::here("R"))
+
+```
+
+
+```{r load results and filter to desired temporal coverage}
+
+desired_routes <- read.csv(here::here("analysis", "supporting_data", "ninetypercent_coverage_1988_2018.csv"), stringsAsFactors = F)
+
+all_sims <- readRDS(here::here("analysis", "results", "all_sims.RDS"))
+all_preds_b <- readRDS(here::here("analysis", "results", "all_preds_b.RDS"))
+all_aics_b <- readRDS(here::here("analysis", "results", "all_aics_b.RDS"))
+all_preds_e <- readRDS(here::here("analysis", "results", "all_preds_e.RDS"))
+all_aics_e <- readRDS(here::here("analysis", "results", "all_aics_e.RDS"))
+all_cs_compares <- readRDS(here::here("analysis", "results", "all_cs_compares.RDS"))
+
+all_sims <- all_sims %>%
+  filter(matssname %in% desired_routes$matssname)
+
+all_preds_b <- all_preds_b %>%
+  filter(matssname %in% desired_routes$matssname)
+
+all_aics_b <- all_aics_b %>%
+  filter(matssname %in% desired_routes$matssname)
+
+all_preds_e <- all_preds_e %>%
+  filter(matssname %in% desired_routes$matssname)
+
+all_aics_e <- all_aics_e %>%
+  filter(matssname %in% desired_routes$matssname)
+
+all_cs_compares <- all_cs_compares %>%
+  filter(matssname %in% desired_routes$matssname)
+
+```
+
+
+
+# Figure 2. 
+<!-- Directions and magnitudes of change. -->
+
+```{r process biomass results}
+
+# Select the best-fitting model for each route using AICc (simplest model with an AICc score within two units of the minimum)
+# all_aics contains the AIC and AICc scores for every model fit to each route. all_aics_b refers to biomass and all_aics_e refers to energy.
+
+winning_aics <- all_aics_b %>%
+  filter(model_family == "Gamma") %>% # I fit both Gamma and Gaussian models. The Gaussian are easier to interpret (slope terms can be read out directly) but are less strictly appropriate for only-positive biomass/energy use data.
+  group_by(matssname) %>% # For each route...
+  mutate(minAICc = min(model_AICc)) %>% # identify best AICc
+  mutate(deltaAICc = minAICc - model_AICc)  %>% # deltaAICc is the difference between each model's AICc and the best AICc for that pool
+  filter(deltaAICc > -2) %>% # use 2 as a rule of thumb cutoff 
+  arrange(matssname, modelcomplexity) %>% # rank by model complexity. 1 is simplest, 4 is most complex.
+  mutate(rank = row_number()) %>% 
+  filter(rank == 1) %>% # select the simplest model with deltaAICc within 2 of the best
+  ungroup()
+
+
+# Get predicted changes for winning models
+# all_preds contains predicted trends for all models; the left_join effectively filters to the models in winning_aics.
+# These slopes are the ratio of the last predicted value to the first predicted value for the winning model.
+winning_fits <- winning_aics %>%
+  left_join(all_preds_b) 
+
+
+# Get changes for winning models *only for routes for which there is some temporal trend*; i.e. the winning model is not the intercept-only model.
+slope_winning_fits <- winning_fits %>%
+  filter(modelcomplexity > 1)
+
+# Pivot longer for plotting and summarizing
+biomass_slopes_long <- slope_winning_fits %>%
+  select(matssname, ratio_sim, ratio_real) %>%
+  tidyr::pivot_longer(-matssname, names_to = "source", values_to = "biomass_ratio") %>%
+  mutate(Dynamics = ifelse(source == "ratio_sim", "Null model", "Observed"))
+
+```
+
+
+```{r process energy results}
+
+
+winning_aics_energy <- all_aics_e %>%
+  filter(model_family == "Gamma") %>% # I fit both Gamma and Gaussian models. The Gaussian are easier to interpret (slope terms can be read out directly) but are less strictly appropriate for strictly-positive biomass/energy use data.
+  group_by(matssname) %>%
+  mutate(minAICc = min(model_AICc)) %>% # identify best AICc
+  mutate(deltaAICc = minAICc - model_AICc)  %>% # deltaAICc is the difference between each model's AICc and the best AICc for that pool
+  filter(deltaAICc > -2) %>% # use 2 as a rule of thumb cutoff 
+  arrange(matssname, modelcomplexity) %>% # rank by model complexity. 1 is simplest, 4 is most complex.
+  mutate(rank = row_number()) %>% 
+  filter(rank == 1) %>% # select the simplest model with deltaAICc within 2 of the best
+  ungroup()
+
+
+# Get predicted changes for winning models
+# all_preds contains predicted trends for all models; the left_join effectively filters to the models in winning_aics.
+winning_fits_energy <- winning_aics_energy %>%
+  left_join(all_preds_e) 
+
+
+# Get changes for winning models *only for routes for which there is some temporal trend*; i.e. the winning model is not the intercept-only model.
+slope_winning_fits_energy <- winning_fits_energy %>%
+  filter(modelcomplexity > 1)
+
+# Pivot longer for plotting and summarizing
+energy_slopes_long <- slope_winning_fits_energy %>%
+  select(matssname, ratio_sim, ratio_real) %>%
+  tidyr::pivot_longer(-matssname, names_to = "source", values_to = "energy_ratio") %>%
+  mutate(Dynamics = ifelse(source == "ratio_sim", "Null model", "Observed"))
+```
+
+```{r stack biomass and energy winning_fits}
+# Combine energy and biomass results into one dataframe 
+winning_fits_both <- winning_fits %>%
+  mutate(currency = "biomass") %>%
+  bind_rows(mutate(winning_fits_energy, currency = "energy"))
+
+
+```
+
+
+```{r render biomass and energy histograms, fig.dim = c(6,8)}
+
+
+biomass_slope_histogram <- ggplot(biomass_slopes_long, aes(biomass_ratio)) + 
+  geom_histogram(boundary = 1, bins = 50) + 
+  scale_x_log10() + 
+  geom_vline(xintercept = 1) + 
+  facet_wrap(vars(Dynamics), scales = "free_y") + 
+  theme(legend.position = "none", text = element_text(size = 8)) + 
+  ggtitle("Total biomass") + 
+  xlab(" \n ") + 
+  ylab("Number of routes")
+
+
+energy_slope_histogram <- ggplot(energy_slopes_long, aes(energy_ratio)) + 
+  geom_histogram(boundary = 1, bins = 50) + 
+  scale_x_log10() + 
+  geom_vline(xintercept = 1) + 
+  facet_wrap(vars(Dynamics), scales = "free_y") + 
+  theme(legend.position = "bottom", text = element_text(size = 8)) +
+  ggtitle("Total energy use") + 
+  xlab("Change from 1989-2018\n(Ratio of last fitted value to first fitted value)") + 
+  ylab("Number of routes")
+
+slope_histograms <- multi_panel_figure(columns = 1, height = c(50, 50), width = 150, unit = "mm") %>%
+  fill_panel(biomass_slope_histogram) %>%
+  fill_panel(energy_slope_histogram)
+slope_histograms
+```
+
+
+```{r save biomass and energy histograms}
+
+ggsave(slope_histograms, file = "figure2_slope_hists.eps", width = 168, height = 130, units = "mm")
+
+
+ggsave(slope_histograms, file = "figure2_slope_hists.jpg", width = 168, height = 130, units = "mm")
+
+```
+
+\newpage
+
+
+# Figure 3
+
+```{r get decoupling df}
+
+interaction_all_fits <- all_preds_b %>% 
+  # get just the change ratios from the interaction models - regardless of whether the interaction model is the best-fitting model. this is because we want an estimate of the slope, we'll color by model fit in a minute
+  group_by_all() %>% 
+  filter(grepl( "* source",model_formula), model_family == "Gamma") %>%
+  mutate(plus = substr(model_formula, 12,12) == "+") %>% filter(!plus) %>%
+  ungroup() %>%
+  # now join to *winning* formulas to get the best fitting formula
+  left_join(select(winning_fits, matssname, model_formula, modelcomplexity) %>%
+              rename(winning_formula = model_formula)) %>%
+  select(winning_formula, ratio_sim, ratio_real, matssname, modelcomplexity) %>%
+  mutate(currency = "Biomass")
+
+
+interaction_all_fits_energy <- all_preds_e  %>% 
+  # get just the change ratios from the interaction models - regardless of whether the interaction model is the best-fitting model. this is because we want an estimate of the slope, we'll color by model fit in a minute
+  group_by_all() %>% 
+  filter(grepl( "* source",model_formula), model_family == "Gamma") %>%
+  mutate(plus = substr(model_formula, 12,12) == "+") %>% filter(!plus) %>%
+  ungroup() %>%
+  # now join to *winning* formulas to get the best fitting formula
+  left_join(select(winning_fits_energy, matssname, model_formula, modelcomplexity) %>%
+              rename(winning_formula = model_formula)) %>%
+  select(winning_formula, ratio_sim, ratio_real, matssname, modelcomplexity) %>%
+  mutate(currency = "Energy use")
+
+
+all_interaction <- bind_rows(interaction_all_fits, interaction_all_fits_energy) %>%
+  mutate(`Best model type` = ifelse(modelcomplexity == 1, "Intercept-only", ifelse(modelcomplexity == 2, "Same trend for null and observed", "Different trends for null and observed"))) %>%
+  mutate(`Best model type` = ordered(`Best model type`, levels = c( "Different trends for null and observed", "Same trend for null and observed", "Intercept-only")))
+
+
+```
+
+
+```{r render decoupling plot, fig.dim= c(4,7)}
+
+decoupling_plot <- ggplot(all_interaction, aes(ratio_sim, ratio_real, color = `Best model type`)) + 
+  geom_point() + 
+  #geom_point(data = filter(all_interaction, winning_formula != "1"), aes(color = winning_formula), alpha = .3) + 
+  scale_y_log10() + 
+  scale_x_log10() + 
+  scale_color_viridis_d(option = "magma", end = .8, direction = -1) + 
+  theme(legend.position = "bottom", legend.direction = "vertical", text = element_text(size = 8)) +
+  geom_abline(intercept = 0, slope = 1) + 
+  geom_vline(xintercept = 1, linetype = 2) + 
+  geom_hline(yintercept = 1, linetype =2) +
+  xlab("Null model \nRatio of last fitted value to first fitted value") + 
+  ylab("Observed dynamics \n Ratio of last fitted value to first fitted value") +
+  facet_wrap(vars(currency), ncol = 1)
+
+
+decoupling_plot
+```
+
+
+```{r save decoupling plot}
+ggsave(decoupling_plot, file = "figure3_decoupling.eps", width = 79, height = 168, units = "mm")
+ggsave(decoupling_plot, file = "figure3_decoupling.jpg", width = 79, height = 168, units = "mm")
+
+```
+
+\newpage
+
+# Figure 4
+
+```{r data wrangling for isd changes plot}
+
+
+winning_fits <- winning_fits %>% 
+  left_join(all_cs_compares) %>%
+  mutate(`Best model type` = ifelse(modelcomplexity == 1, "Intercept-only", ifelse(modelcomplexity == 2, "Same trend for null and observed", "Different trends for null and observed"))) %>%
+  mutate(`Best model type` = ordered(`Best model type`, levels = c( "Different trends for null and observed", "Same trend for null and observed", "Intercept-only")))
+
+
+winning_fits <- winning_fits %>%
+  mutate(categorical_fit = `Best model type`) %>%
+  mutate(categorical_fit = as.factor(categorical_fit)) %>%
+  mutate(abs_log_ratio = abs(log(real_end_mean_mass / real_begin_mean_mass)),
+         log_ratio = log(real_end_mean_mass/real_begin_mean_mass)) %>%
+  mutate(isd_turnover = 1 - real_overlap)
+
+isd_mean_change_plot <-  ggplot(winning_fits, aes(abs_log_ratio, color = `Best model type`, fill= `Best model type`)) + 
+  geom_histogram() + 
+  facet_wrap(vars(`Best model type`), scales = 'free_y', ncol = 1) +
+  scale_color_viridis_d(option = "magma", end = .8, direction = -1) +     
+  scale_fill_viridis_d(option = "magma", end = .8, direction = -1) +
+  theme(legend.position = "none", text = element_text(size = 8)) +
+  xlab("Change in mean body mass\n(Absolute log ratio)") +
+  ylab("Number of routes") +
+  ggtitle("Change in mean body mass")
+
+
+```
+
+```{r isd turnover plot}
+
+isd_overlap_plot <- ggplot(winning_fits, aes(isd_turnover,color = `Best model type`, fill= `Best model type`)) + 
+  geom_histogram() + 
+  facet_wrap(vars(`Best model type`), scales = 'free_y', ncol = 1) +
+  scale_color_viridis_d(option = "magma", end = .8, direction = -1) +#, end = .8) +  
+  scale_fill_viridis_d(option = "magma", end = .8, direction = -1) + #, end = .8) +
+  theme(legend.position = "none", text = element_text(size = 8)) +
+  xlab("Change in the ISD\n(Overlap measure)") +
+  ylab("Number of routes") +
+  ggtitle("Change in the ISD")
+
+
+
+```
+
+```{r render isd change plots, fig.dim = c(8,5)}
+
+isd_change_plots <- multi_panel_figure(rows = 1, width = c(60, 60), units = "mm") %>%
+  fill_panel(isd_mean_change_plot) %>%
+  fill_panel(isd_overlap_plot)
+isd_change_plots
+```
+```{r save isd change plots}
+
+ggsave(isd_change_plots, file = "figure4_isd_change.eps", width = 168, height = 130, units = "mm")
+
+ggsave(isd_change_plots, file = "figure4_isd_change.jpg", width = 168, height = 130, units = "mm")
+```
+
+
+
+\newpage
+
+
+# Tables
+
+
+### Table 1.
+
+```{r model outcomes table, results = T}
+
+model_outcomes_table <- winning_fits_both %>%
+  select(matssname, model_family, model_formula, currency)  %>%
+  group_by(currency, model_formula) %>%
+  summarize(n = dplyr::n()) %>%
+  ungroup() %>%
+  group_by(currency) %>%
+  mutate(nmods = sum(n)) %>%
+  mutate(prop = n / nmods)
+
+model_outcomes_table_pretty <- model_outcomes_table %>%
+  mutate(currency = ifelse(currency == "biomass", "Total biomass", "Total energy use")) %>%
+  mutate(prop_rounded = round(prop, digits = 2),
+         form_pretty = ifelse(grepl("1", model_formula), "Intercept-only", ifelse(grepl("source", model_formula), "Decoupled trend", "Trend, not decoupled"))) %>%
+  select(currency, form_pretty, n, prop_rounded) %>%
+  rename(`Selected model` = form_pretty,
+         `Number of routes` = n,
+         `Proportion of routes` = prop_rounded,
+         Currency = currency)
+
+model_outcomes_table_pretty
+
+```
+#### Table 1
+
+\newpage
+
+### Table 2.
+
+
+```{r}
+
+slope_winning_fits <- filter(winning_fits_both, modelcomplexity > 1) %>%
+  mutate(abundance_driven_increase = ratio_sim > 1,
+         observed_increase = ratio_real > 1)
+
+slope_winning_fits_summary <- slope_winning_fits %>%
+  group_by(currency) %>%
+  summarize(n_with_slope = dplyr::n(),
+            n_abundance_increase = sum(abundance_driven_increase),
+            n_observed_increase = sum(observed_increase),
+            prop_abundance_increase = round(mean(abundance_driven_increase), digits = 2),
+            prop_observed_increase = round(mean(observed_increase), digits = 2))
+
+slope_winning_fits_pretty <- slope_winning_fits_summary %>%
+  mutate(currency = ifelse(currency == "biomass", "Total biomass", "Total energy use")) %>%
+  select(currency,
+         # n_abundance_increase,
+         # n_observed_increase,
+         prop_abundance_increase,
+         prop_observed_increase,
+         n_with_slope) %>%
+  rename(Currency = currency,
+         # `Number of routes with individuals-driven increase`= n_abundance_increase,
+         # `Number of routes with observed increase`  = n_observed_increase,
+         `Proportion of increasing individuals-driven trends` = prop_abundance_increase,
+         `Proportion of increasing observed trends` = prop_observed_increase,
+         `Number of routes with temporal trends` = n_with_slope)
+
+slope_winning_fits_pretty
+
+```
+
+#### Table 2
+
+
+

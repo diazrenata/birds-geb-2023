@@ -1,0 +1,391 @@
+---
+title: "Appendix S2"
+author: "Demonstration of methods using a sample route."
+output:
+  # word_document:
+  #   reference_docx: template_doc.docx
+  #   df_print: kable
+  #   toc: true
+  # html_document:
+  #   df_print: kable
+  # pdf_document: 
+  #   df_print: kable
+  github_document:
+    df_print: kable
+csl: ref_template.csl
+bibliography: refs.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, include = T, results = T, message = F, warning = F, eval = T, fig.dim = c(4,4))
+library(dplyr)
+library(multipanelfigure)
+library(ggplot2)
+theme_set(theme_bw())
+
+R.utils::sourceDirectory(here::here("R"))
+
+```
+
+```{r load a route}
+
+dec_route <- readRDS(here::here("analysis", "bbs_data", "bbs_rtrg_84_72.RDS"))
+load(here::here("data", "sd_table.rda"))
+
+
+route_name <- tools::toTitleCase(tolower(dec_route$metadata$location$routename))
+route_state <- tools::toTitleCase(tolower(dec_route$metadata$location$regionname))
+route_startyear <- min(dec_route$covariates$year)
+
+dec_route <- pull_focal_years(dec_route)
+
+dec_route_svs <- get_annual_state_variables(dec_route)
+
+dec_route_isds <- simulate_isd_ts(dec_route, isd_seed = 1989)
+
+dec_route_nm <- relabund_null_model(dec_route)
+
+dec_route_nm_svs <- get_annual_state_variables(dec_route_nm)
+
+dec_route_nm_isds <- simulate_isd_ts(dec_route_nm, isd_seed = 1989)
+
+
+dec_route_abunds_long <- dec_route$abundance %>%
+  mutate(year = dec_route$covariates$year) %>%
+  tidyr::pivot_longer(-year, names_to = "id", values_to = "abundance") %>%
+  left_join(sd_table) %>%
+  filter(abundance > 0)
+
+
+dec_route_relabunds_long <- dec_route_abunds_long %>%
+  group_by(year) %>%
+  mutate(total_annual_n = sum(abundance)) %>%
+  mutate(species_relative_abundance = abundance / total_annual_n) %>%
+  ungroup()
+
+dec_route_nm_abunds_long <- dec_route_nm$abundance %>%
+  mutate(year = dec_route_nm$covariates$year) %>%
+  tidyr::pivot_longer(-year, names_to = "id", values_to = "abundance") %>%
+  left_join(sd_table) %>%
+  filter(abundance > 0)
+
+dec_route_nm_relabunds_long <- dec_route_nm_abunds_long %>%
+  group_by(year) %>%
+  mutate(total_annual_n = sum(abundance)) %>%
+  mutate(species_relative_abundance = abundance / total_annual_n) %>%
+  ungroup()
+
+
+```
+
+```{r}
+
+first_species <- dec_route_abunds_long[3,]
+
+first_species_dat <- sd_table %>%
+  filter(id == first_species$id[1])
+
+
+```
+
+# Example route
+
+Here, we detail the entire analytical workflow for this manuscript using an example Breeding Bird Survey route. This route (`r route_name`, `r route_state`) has been sampled beginning in `r route_startyear`. We used data from 1989-2018.
+
+## Data
+
+We used the 2019 release of the Breeding Bird Survey (hereafter BBS) data [@pardieck2019]. We downloaded these data using the `MATSS` R package [@ye2020], which uses the Data Retriever [@senyondo2017] to access data. Using the `MATSS` package, we filtered the BBS data to exclude species poorly sampled via the BBS methodology (e.g. waterbirds, nocturnal and crepuscular species), as well as "unidentified" species [@harris2018]. For a complete list of the species that were removed through this filtering process, see the file `species_removed.csv` in the `analysis/supporting_data` folder of the online code and data supplement.
+
+We used a subset of routes for which there was a minimum of 27 years of data available between the years 1989-2018, for a total of 739 routes. These routes are listed in the file `ninetypercent_coverage_1988_2018.csv` in the `analysis/supporting_data` folder. We repeated the analysis using 199 routes with data available for the full 30 years.
+
+## Route-level biomass and energy use
+
+The BBS data contain species identities and abundances (number of individuals observed) for all species observed along a given route in a given year. We used species' traits to estimate measurements of body mass and basal metabolic rate for each individual observed.
+
+To estimate body masses, we assumed that, within a species, body mass is normally distributed around a species-wide mean (@thibault2011 and references therein). For the species in these data, we obtained species-wide values for the mean and standard deviation of body mass from the CRC Handbook of Avian Body Masses (@dunning2008). For species with multiple records, we took the mean parameter values across all records. Some species in our data had values for the mean, but not the standard deviation, of body masses present in @dunning2008. However, there is a strong scaling relationship between a species' mean body mass $\bar{m}$ and its standard deviation of body mass (the R2 of a linear model relating variance to mean of body size is .88; see also @thibault2011). We used this scaling relationship to fill in missing records of standard deviations. Specifically, for these records we estimated the variance as $\text{log}(\text{variance})=-5.273+(\text{log}(\bar{m})*1.995))$. This affected 185 species of the 421 species in our data.
+
+We estimated body mass measurements for every individual recorded on each route in each year. For the `r route_name` route, there were `r first_species$abundance[1]` individuals of *`r paste0(first_species$genus[1], " ", first_species$species[1])`* observed in 1989. This species has a mean mass of `r first_species_dat$mean_mass[1]` and a standard deviation of `r first_species_dat$mean_sd[1]` (values derived from @dunning2008). We estimated individual body mass values for these `r first_species$abundance[1]` individuals by drawing `r first_species$abundance[1]` values from a normal distribution with a mean of `r first_species_dat$mean_mass[1]` and a standard deviation of `r first_species_dat$mean_sd[1]`. We approximated each individual's BMR as $10.5 * (m ^ {0.713})$, where $m$ is that individual's estimated body mass (@fristoe2015).
+
+We repeated this process for all `r nrow(filter(dec_route_abunds_long, year == 1989))` species observed on the `r route_name` route in 1989. Combining individual-level body mass estimates across all species produces the route-level ISD for 1989 (Figure S2.1; note the individuals of *`r paste0(first_species$genus[1], " ", first_species$species[1])`* visible in bright yellow). Summing over all individuals observed in 1989 produces the total route-level biomass of `r as.character(round(dec_route_svs$total_biomass[1]))` g and energy use of `r as.character(round(dec_route_svs$total_energy[1]))` kJ for that year. We repeated this procedure for every year, to produce ISDs for each year and timeseries of biomass and energy use for this route from 1989-2018.
+
+```{r, fig.dim = c(6, 9)}
+
+isd_data <- dec_route_isds$isd %>% left_join(sd_table) %>%
+  mutate(Species = paste0(genus, " ", species))
+
+ggplot(filter(isd_data, year == 1989), aes(mass, fill = Species, color = Species)) +
+    geom_histogram(position="stack", size = 0, bins = 50) +
+  scale_fill_viridis_d() +
+  scale_color_viridis_d() +
+  theme(legend.position = "bottom", legend.direction = "vertical") +
+  scale_x_log10() +
+  xlab("Body mass (g)") +
+  ylab("Number of individuals") +
+  ggtitle(paste0("Figure S2.1 ", route_name, " ISD for 1989"))
+
+```
+
+*Figure S2.1.* ISD for the `r route_name`, `r route_state` route for 1989. This is a histogram with individual body mass, binned along the x-axis, and the number of individuals, of any species, with that body mass on the y axis. Bars are colored according to species. Note the `r first_species$abundance[1]` individuals of *`r paste0(first_species$genus[1], " ", first_species$species[1])`* visible in bright yellow at body masses just above 100g.
+
+## Null model
+
+We compared the long-term trends in total biomass and total abundance calculated via the process described above to the trends that would occur under a "null" scenario of no long-term change in the individual size distribution. Because (at least for these data) the ISD is a reflection of the species composition of the system, we used a null model of no change in species composition over time. Under this null model, each species' abundance in each year is a reflection of its average relative abundance over the entire timeseries.
+
+To generate the null model species' abundances for each route, we first calculated each species' relative abundance on that route in each year.  For each species, we then calculated its *average* relative abundance over time. Across all species, the time-averaged relative abundances sum to 1, creating a time-averaged community composition in which each year is given equal weight. 
+
+We then generated null-model communities for each year that had the same total abundance (across all species) as the actual, observed, data for each year, but with species' identities re-assigned based on the time averaged relative abundances. Specifically, for each year, we randomly assigned new species identities to the individuals observed in that year, with the probability of an individual being assigned to a given species weighted according to species' time-averaged relative abundances.  
+
+```{r}
+
+both_relabunds_long <- dec_route_relabunds_long %>%
+  mutate(Model = "Observed") %>%
+  bind_rows(mutate(dec_route_nm_relabunds_long, Model = "Null model")) 
+
+both_relabunds_long <- both_relabunds_long %>%
+  mutate(Model = factor(Model, levels = c("Observed", "Null model"))) %>%
+  left_join(sd_table) %>%
+  mutate(Species = paste0(genus, " ", species))
+
+
+qq <- filter(both_relabunds_long, Species == both_relabunds_long$Species[21]) %>%
+    mutate(Model = factor(Model, levels = c("Observed", "Null model")))
+
+qq_obs <- filter(qq, Model == "Observed")
+qq_null <- filter(qq, Model == "Null model")
+
+both_svs <- dec_route_svs %>%
+  mutate(Model = "Observed") %>%
+  bind_rows(mutate(dec_route_nm_svs, Model = "Null model"))  %>%
+  mutate(Model = factor(Model, levels = c("Observed", "Null model"))) 
+
+```
+
+For example, _`r both_relabunds_long$Species[21]`_ declined in relative abundance over time, and ranged from a relative abundance from 0.012, in 2017, to .113, in 1999. Overall, its  mean relative abundance was 0.065 (Figure S2.2). Under the null model, we re-assigned species identities to all individuals observed in each year. We assumed that the probability of an individual being assigned to _`r both_relabunds_long$Species[21]`_ did not vary over time, but remained constant at a chance of 6.5%. For example, there were at total of `r both_svs$abundance[1]` individuals observed in `r both_svs$timeperiod[1]`. In actuality, `r qq_obs$abundance[1]` of those were `r both_relabunds_long$Species[21]`, or `r as.character(round(qq_obs$abundance[1] / both_svs$abundance[1] * 100, digits = 1))`%. After-reassigning species identities, `r qq_null$abundance[1]` of those individuals were assigned to _`r both_relabunds_long$Species[21]`_ - or, `r as.character(round(qq_null$abundance[1] / both_svs$abundance[1] * 100, digits = 1))`%. Over the course of the null model, the relative abundance of _`r both_relabunds_long$Species[21]`_ ranges from .055 to .083 - the result of random sampling around a long-term mean of .065. 
+
+Community-wide, this null model generated  timeseries of species' abundances that mirror the observed data in the total number of individuals observed in each year, but with no long-term trends in species (and therefore size) composition (Figure S2.3).
+
+```{r, fig.dim = c(5,3)}
+
+
+ggplot(qq, aes(year, species_relative_abundance, color = Model)) +
+  geom_line() +
+  geom_point() + 
+    scale_color_viridis_d(option = "plasma", end = .8) +
+  ggtitle(paste0("Figure S2.2 ", both_relabunds_long$Species[21], " relative abundance"),
+          subtitle = "Observed and null dynamics") +
+  xlab("Year") +
+  ylab("Relative abundance") +
+  theme(legend.position = "bottom") +
+  geom_hline(yintercept = mean(filter(qq, Model == "Observed")$species_relative_abundance), linetype = 3)
+
+```
+
+*Figure S2.2* Relative abundances of _`r both_relabunds_long$Species[21]`_ over time under the observed (dark blue) and null model (orange) dynamics. In reality, `r both_relabunds_long$Species[21]`'s relative abundance fluctuated and declined over time, with a long-term mean (horizontal dashed line) of 0.065. Under the null model, individuals were re-assigned to _`r both_relabunds_long$Species[21]`_ with a probability of 0.065. Due to random sampling, the relative abundances of _`r both_relabunds_long$Species[21]`_ occurring in the null model range from .055-.083 and do not change directionally over time.
+
+```{r, fig.dim = c(6,4)}
+
+ggplot(both_relabunds_long, aes(year, species_relative_abundance, fill = Species, color = Species)) +
+  geom_col(position = 'stack') +
+  theme(legend.position = "none", legend.direction = "vertical") +
+  scale_fill_viridis_d() +
+  scale_color_viridis_d() +
+  facet_wrap(vars(Model)) +
+  xlab("Year") +
+  ylab("Relative abundance") +
+  ggtitle("Figure S2.3. Observed and null model species composition")
+
+
+```
+
+
+![](legend.png)
+
+```{r, fig.dim = c(8,8), include = F, eval = F}
+
+
+ggplot(both_relabunds_long, aes(year, species_relative_abundance, fill = Species)) +
+  geom_col(position = 'stack') +
+  theme(legend.position = "bottom", legend.direction = "vertical") +
+  scale_fill_viridis_d() +
+  scale_color_viridis_d() +
+  facet_wrap(vars(Model)) +
+  xlab("Year") +
+  ylab("Relative abundance")
+
+```
+
+*Figure S2.3.* Community-wide species' relative abundances under the observed dynamics (left) and null model (right). Each vertical bar represents the community composition in each year, with the color makeup of the bar reflecting different species' relative abundances. In the observed data, species composition changes over time (e.g. an increase in the relative abundance of the dark purple species). In the null model, relative abundances remain roughly constant around a long-term average, with minor fluctuations due to random sampling.
+
+Finally, we generated ISDs and estimates of route-level annual total biomass and energy use for the null model timeseries following the same procedure as for the observed data (Figure S2.4).
+
+```{r, fig.dim = c(6,4)}
+
+ggplot(both_svs, aes(timeperiod, total_biomass, color = Model)) +
+  geom_point() +
+  geom_line(linetype = 3) +
+  scale_color_viridis_d(option = "plasma", end = .8) +
+  theme(legend.position = "bottom") +
+  ylab("Total biomass (g)") +
+  xlab("Year") +
+  ggtitle("Figure S2.4. Observed and null-model timeseries\n(total biomass)")
+
+```
+
+## Comparing observed and null dynamics
+
+We used generalized linear models (GLMs) to test for long-term trends in total biomass and energy use over time, and to test for *differences* in the long-term trends between the observed data and the null model. Because both total biomass and total energy use are strictly positive (\>0) quantities, we used Gamma GLMs with log link functions.
+
+For each route, we fit four models, corresponding to different scenarios of long-term trends and differences between observed and null dynamics:
+
+1.  total biomass \~ 1. An intercept-only model describes a scenario of no directional long-term trend for either the observed or null dynamics.
+2.  total biomass \~ year. A trend model describes a scenario of a directional long-term trend, but no difference in the slope of that trend comparing between the observed and null dynamics.
+3.  total biomass \~ year + observed-or-null. A trend model with an additional term for a separate intercept for the observed versus the null dynamics. This model was never selected as the best-fitting model for a route.
+4.  total biomass \~ year + observed-or-null + year:observed-or-null. A trend model with a separate slope and intercept for the observed and null dynamics. This model describes a scenario where one or both of the observed or null timeseries shows a directional trend over time, *and* this trend differs between the observed and null timeseries.
+
+```{r, fig.dim = c(6,4)}
+
+all_sims <- readRDS(here::here("analysis", "results", "all_sims.RDS"))
+all_preds_b <- readRDS(here::here("analysis", "results", "all_preds_b.RDS"))
+all_aics_b <- readRDS(here::here("analysis", "results", "all_aics_b.RDS"))
+
+some_sims <- filter(all_sims, matssname == "bbs_rtrg_84_72")
+
+some_preds <- filter(all_preds_b, matssname == "bbs_rtrg_84_72")
+
+some_aics <- filter(all_aics_b, matssname == "bbs_rtrg_84_72")
+
+
+mods <- fit_trend_models_biomass(some_sims)
+
+mod_eval <- eval_trend_models(mods)
+
+interact_fitted <- some_sims %>%
+  mutate(Formula = "4. Time * Observed-or-null",
+         Fitted = mods[[5]]$fitted.values,
+         AICc = mod_eval$model_AICc[5])
+
+
+plus_fitted <- some_sims %>%
+  mutate(Formula = "3. Time + Observed-or-null",
+         Fitted = mods[[6]]$fitted.values,
+         AICc = mod_eval$model_AICc[6])
+
+
+time_fitted <- some_sims %>%
+  mutate(Formula = "2. Time",
+         Fitted = mods[[7]]$fitted.values,
+         AICc = mod_eval$model_AICc[7])
+
+
+intercept_fitted <- some_sims %>%
+  mutate(Formula = "1. Intercept only",
+         Fitted = mods[[8]]$fitted.values,
+         AICc = mod_eval$model_AICc[8])
+
+all_fitted <- bind_rows(interact_fitted, plus_fitted) %>%
+  bind_rows(time_fitted) %>%
+  bind_rows(intercept_fitted) %>%
+  mutate(Model = ifelse(source == "real", "Observed", "Null model")) %>%
+  mutate(Model = factor(Model, levels = c("Observed", "Null model"))) %>%
+  mutate(Formula = paste0(Formula, "; AICc = ", round(AICc, digits = 2)))
+  
+
+ggplot(all_fitted, aes(timeperiod, total_biomass, color = Model)) +
+  geom_point(alpha = .6) +
+  geom_line(aes(y = Fitted)) +
+  facet_wrap(vars(Formula)) +
+  scale_color_viridis_d(option = "plasma", end = .8) +
+  theme(legend.position = "bottom") +
+  xlab("Year") +
+  ylab("Total biomass") +
+  ggtitle("Figure S2.5. Fitted models")
+
+```
+
+*Figure S2.5*. Fitted models comparing observed and null-model dynamics. On each panel, the points show the timeseries of total biomass for observed (blue) and null-model (orange) dynamics generated using the procedure described above. The lines show the fitted values from a Gamma log-link GLM with a model formula specified according the the four scenarios described in the text. For the intercept-only and time-only models (1. and 2.), the trends for observed and null dynamics are the same. For the separate-intercept (3.) and separate-trend (4.) panels, different trends are fit for the observed and null dynamics.
+
+We selected the best-fitting model for each route using AICc (correcting for small sample sizes). We identified the best-fitting model for each route as the simplest model with an AICc within 2 units of the model with the lowest AICc for that route. For this route, the best-fitting model formula is "4. Time \* Observed-or-null" (AICc = 1367.61), corresponding to different temporal trends for observed versus null-model dynamics. We tallied the total number of routes best-described by each model (described in the main text).
+
+For routes for which there was a long-term trend (or different long-term trends for the observed and null dynamics; models best described using models 2. or 4., above), we used the fitted values from the best-fitting model - not the raw data - to characterize the slope and direction of this long term trend. We extracted the first and last fitted values from the model, and took the ratio of the last:first value. This value, if greater than 1, shows an increasing trend, and if less than 1, shows a decreasing trend. For this route, the last fitted value for the observed dynamics (end value of the blue line in Figure S2.5 panel 4) is `r as.character(round(some_preds$end_real[5]))`, while the first fitted value (first value of the blue line) is `r as.character(round(some_preds$begin_real[5]))`, resulting in a last:first ratio of `r as.character(round(some_preds$ratio_real[5], digits = 2))`. This indicates a substantial decline in total biomass over time, taking into account both changes in abundance and change in the size structure. This contrasts to the null model dynamics, for which the last value (ending value of the orange line) is `r as.character(round(some_preds$end_sim[5]))`, and the first fitted value is `r as.character(round(some_preds$begin_sim[5]))`. The null model last:first ratio is `r as.character(round(some_preds$ratio_sim[5], digits = 2))`, indicating very little directional change in total biomass over time taking into account changes in abundance but under a scenario of no change in the size structure. This approach is considerably less sensitive to outliers in the first or last time steps than would be a similar approach using the raw data.
+
+Across all routes with trends, we tallied the number of increasing and decreasing trends for both the null model and observed dynamics (main text Figure 2). To generate main text figure 3, we calculated this same set of ratios for *all routes*, using the most-complex, "separate trends" model. These values are the x and y axes for main text figure 4, while the points are colored according to the best-fitting model for each route.
+
+## Change in the size structure over time
+
+```{r, echo = F, include = F, results = F}
+ all_cs_compares <- readRDS(here::here("analysis", "results", "all_cs_compares.RDS"))
+some_cs_compares <- filter(all_cs_compares, matssname == "bbs_rtrg_84_72")
+
+first_five <- isd_data %>%
+  filter(year %in% 1989:1993)
+
+last_five <- isd_data %>%
+  filter(year %in% 2014:2018)
+
+first_five_gmm <- add_gmm(isd = first_five)
+
+last_five_gmm <- add_gmm(isd = last_five)
+
+
+both_gmms <- first_five_gmm %>%
+  mutate(Timeperiod = "First five years (1989-1993)") %>%
+  bind_rows(mutate(last_five_gmm, Timeperiod = "Last five years (2014-2018)")) %>%
+  mutate(mass_real = exp(mass))
+
+timeperiod_data <-  first_five %>%
+  mutate(Timeperiod = "First five years (1989-1993)") %>%
+  bind_rows(mutate(last_five, Timeperiod = "Last five years (2014-2018)")) %>%
+  group_by(Timeperiod) %>%
+  summarize(mean_mass = mean(mass)) %>%
+  mutate(log_mean_mass = log(mean_mass))
+
+
+
+```
+
+Finally, we calculated two metrics to describe how the ISD changed from the beginning to the end of the time period considered in this study. For each route, we characterized the "beginning" of the time period as the first 5 years of available data, and the "end" as the last 5 years of available data. We constructed ISDs for these time periods by pooling all individuals observed, of any species, across all 5 years for each time period (Figure S2.6).
+
+We used absolute log ratios [@supp2014a] to measure directional change in community-wide mean body mass from the first to the last five year periods. Specifically, we calculated $|(\text{log}(\frac{\bar{m}_{\text{last five years}}}{\bar{m}_{\text{first five years}}})|$. Values close to 0 indicate little change in the mean mass (either increasing or decreasing), while larger changes result in values greater than 0. For this route, the absolute log ratio is $|\text{log}\frac{69.6}{100.8}|$, or `r as.character(round(abs(log(timeperiod_data$mean_mass[2] / timeperiod_data$mean_mass[1])), digits = 2))` (see Figure S2.6).
+
+Second, we calculated the total *amount* of change in the ISD from the first to the last time periods, regardless of whether this change resulted in a change in the overall mean body size. For this, we calculated the proportion of non-overlap between the density plots describing the ISD for the first and last time periods (area of non-overlapping density between the blue and green density plots in Figure S2.6). Values of this metric close to 0 indicate almost no change in the ISD between the first and last periods (complete overlap between the two distributions), while values close to 1 indicate near complete *turnover* (little to no overlap between the two distributions). For this route, the turnover measure is `r as.character(round(some_cs_compares$real_turnover, digits = 2))`.
+
+We tested whether these measures - the absolute log ratio of the mean mass of the last five years compared to the first five years, and the amount of turnover in the ISD from the first to the last five year periods - differed between routes whose overall dynamics were best-described by the different models (main text figure 4, and appendix S3).
+
+```{r, fig.dim = c(6,4)}
+
+ggplot(both_gmms, aes(mass_real, density, color = Timeperiod, fill = Timeperiod)) +
+    geom_label(data = timeperiod_data, aes(x = mean_mass, y = .0155, color = Timeperiod, label = paste0("Mean:\n", round(mean_mass, digits = 1))), inherit.aes = F, position = position_dodge2(width = 1.5)) +
+  geom_ribbon(aes(ymin = 0, ymax = density), alpha = .8) +
+  xlab("Mass (g)") +
+  ylab("Density") +
+  ggtitle("Figure S2.6. ISDs for the first and last five years") +
+  scale_color_viridis_d(option = "viridis", end = .8, begin = .2) +
+  scale_fill_viridis_d(option = "viridis", end = .8, begin = .2) +
+  theme(legend.position = "none") +
+  geom_point(data = timeperiod_data, aes(x = mean_mass, y = .016, color = Timeperiod), shape = 8) +
+  scale_x_log10()
+
+```
+
+![](legend2.png)
+
+
+
+```{r, fig.dim = c(6,4), include = F, eval = F, results = F}
+
+ggplot(both_gmms, aes(mass_real, density, color = Timeperiod, fill = Timeperiod)) +
+   # geom_label(data = timeperiod_data, aes(x = mean_mass, y = .0155, color = Timeperiod, label = paste0("Mean:\n", round(mean_mass, digits = 1))), inherit.aes = F, position = position_dodge2(width = 1.5)) +
+  geom_ribbon(aes(ymin = 0, ymax = density), alpha = 1) +
+  xlab("Mass (g)") +
+  ylab("Density") +
+  ggtitle("Figure S2.6. ISDs for the first and last five years") +
+  scale_color_viridis_d(option = "viridis", end = .8, begin = .2) +
+  scale_fill_viridis_d(option = "viridis", end = .8, begin = .2) +
+  theme(legend.position = "bottom") +
+  geom_point(data = timeperiod_data, aes(x = mean_mass, y = .016, color = Timeperiod), shape = 8) +
+  scale_x_log10()
+```
+
+\newpage
+
+## References

@@ -1,0 +1,181 @@
+---
+title: "Appendix S3"
+author: "Statistical comparisons of distributions in Figure 4."
+output:
+  github_document:
+    df_print: kable
+  # word_document:
+  #   reference_docx: template_doc.docx
+  #   df_print: kable
+  #   toc: yes
+csl: ref_template.csl
+bibliography: refs.bib
+---
+
+\newpage
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F, include = T, results = T, message = F, warning = F, eval = T, fig.dim = c(4,4))
+library(dplyr)
+library(multipanelfigure)
+library(ggplot2)
+theme_set(theme_bw())
+
+R.utils::sourceDirectory(here::here("R"))
+
+
+```
+
+```{r load results and filter to desired temporal coverage}
+
+desired_routes <- read.csv(here::here("analysis", "supporting_data", "ninetypercent_coverage_1988_2018.csv"), stringsAsFactors = F)
+
+all_sims <- readRDS(here::here("analysis", "results", "all_sims.RDS"))
+all_preds_b <- readRDS(here::here("analysis", "results", "all_preds_b.RDS"))
+all_aics_b <- readRDS(here::here("analysis", "results", "all_aics_b.RDS"))
+all_preds_e <- readRDS(here::here("analysis", "results", "all_preds_e.RDS"))
+all_aics_e <- readRDS(here::here("analysis", "results", "all_aics_e.RDS"))
+all_cs_compares <- readRDS(here::here("analysis", "results", "all_cs_compares.RDS"))
+
+all_sims <- all_sims %>%
+  filter(matssname %in% desired_routes$matssname)
+
+all_preds_b <- all_preds_b %>%
+  filter(matssname %in% desired_routes$matssname)
+
+all_aics_b <- all_aics_b %>%
+  filter(matssname %in% desired_routes$matssname)
+
+all_preds_e <- all_preds_e %>%
+  filter(matssname %in% desired_routes$matssname)
+
+all_aics_e <- all_aics_e %>%
+  filter(matssname %in% desired_routes$matssname)
+
+all_cs_compares <- all_cs_compares %>%
+  filter(matssname %in% desired_routes$matssname)
+
+```
+
+
+```{r process biomass results}
+
+# Select the best-fitting model for each route using AICc (simplest model with an AICc score within two units of the minimum)
+# all_aics contains the AIC and AICc scores for every model fit to each route.
+
+winning_aics <- all_aics_b %>%
+  filter(model_family == "Gamma") %>% # I fit both Gamma and Gaussian models. The Gaussian are easier to interpret (slope terms can be read out directly) but are less strictly appropriate for strictly-positive biomass/energy use data.
+  group_by(matssname, model_family) %>%
+  mutate(minAICc = min(model_AICc)) %>% # identify best AICc
+  mutate(deltaAICc = minAICc - model_AICc)  %>% # deltaAICc is the difference between each model's AICc and the best AICc for that pool
+  filter(deltaAICc > -2) %>% # use 2 as a rule of thumb cutoff 
+  arrange(matssname, modelcomplexity) %>% # rank by model complexity. 1 is simplest, 4 is most complex.
+  mutate(rank = row_number()) %>% 
+  filter(rank == 1) %>% # select the simplest model with deltaAICc within 2 of the best
+  ungroup()
+
+
+# Get predicted changes for winning models
+# all_preds contains predicted trends for all models; the left_join effectively filters to the models in winning_aics.
+winning_fits <- winning_aics %>%
+  left_join(all_preds_b) 
+
+
+
+```
+
+
+```{r process energy results}
+
+
+winning_aics_energy <- all_aics_e %>%
+  filter(model_family == "Gamma") %>% # I fit both Gamma and Gaussian models. The Gaussian are easier to interpret (slope terms can be read out directly) but are less strictly appropriate for strictly-positive biomass/energy use data.
+  group_by(matssname, model_family) %>%
+  mutate(minAICc = min(model_AICc)) %>% # identify best AICc
+  mutate(deltaAICc = minAICc - model_AICc)  %>% # deltaAICc is the difference between each model's AICc and the best AICc for that pool
+  filter(deltaAICc > -2) %>% # use 2 as a rule of thumb cutoff 
+  arrange(matssname, modelcomplexity) %>% # rank by model complexity. 1 is simplest, 4 is most complex.
+  mutate(rank = row_number()) %>% 
+  filter(rank == 1) %>% # select the simplest model with deltaAICc within 2 of the best
+  ungroup()
+
+
+# Get predicted changes for winning models
+# all_preds contains predicted trends for all models; the left_join effectively filters to the models in winning_aics.
+winning_fits_energy <- winning_aics_energy %>%
+  left_join(all_preds_e) 
+
+```
+
+```{r}
+
+
+winning_fits <- winning_fits %>% 
+  left_join(all_cs_compares) %>%
+  mutate(`Best model type` = ifelse(modelcomplexity == 1, "Intercept-only", ifelse(modelcomplexity == 2, "Same trend for null and observed", "Different trends for null and observed"))) %>%
+  mutate(`Best model type` = ordered(`Best model type`, levels = c( "Different trends for null and observed", "Same trend for null and observed", "Intercept-only")))
+
+
+winning_fits <- winning_fits %>%
+  mutate(categorical_fit = `Best model type`) %>%
+  mutate(categorical_fit = as.factor(categorical_fit)) %>%
+  mutate(abs_log_ratio = abs(log(real_end_mean_mass / real_begin_mean_mass)),
+         log_ratio = log(real_end_mean_mass/real_begin_mean_mass)) %>%
+  mutate(isd_turnover = 1 - real_overlap)
+```
+
+# Appendix S3 Table S1.
+
+```{r, results = T}
+
+mean_mass_lm <- lm(abs_log_ratio ~ categorical_fit, data = winning_fits)
+
+mean_mass_lm_intercept <- lm(abs_log_ratio ~ 1, data = winning_fits)
+
+anova(mean_mass_lm, mean_mass_lm_intercept)
+
+```
+
+*Appendix S3 Table S1.* ANOVA table comparing ordinary linear models of the form abs_log_ratio ~ best model type and abs_log_ratio ~ 1. The fit incorporating best model type is superior to the intercept-only model (p < 0.0001).
+
+\newpage
+
+# Appendix S3 Table S3.2
+
+```{r, results = T}
+mean_mass_lm_emmeans <- emmeans::emmeans(mean_mass_lm, specs = ~ categorical_fit)
+
+as.data.frame(mean_mass_lm_emmeans)
+```
+
+**Appendix S3 Table S3.2** Estimates (calculated using emmeans [@lenth2021]) for the mean absolute log ratio of mean mass for routes whose dynamics for biomass were best-described by different model types. Routes best-described by models with long-term trends between observed and null model dynamics for biomass have higher absolute log ratios (mean .57, 95% credible interval .54-.6) than routes best-described by models with the same slope for null and observed dynamics (mean of .2; 95% interval .18-.21) or no directional trend (mean of .23; .21-.25).
+
+\newpage
+
+# Appendix S3 Table S3
+
+```{r, results = T}
+as.data.frame(pairs(mean_mass_lm_emmeans))
+```
+
+**Appendix S3 Table S3**. Contrasts for absolute log ratio of mean mass, calculated using emmeans [@lenth2021]. There is a significant contrast between routes best-described with different slopes for null and observed dynamics and routes best-described by either the same slope or no directional trend (both contrasts, p < 0.001), as well as between routes best described by the same slope or no directional trend (contrast p = .045).
+
+\newpage
+
+# Appendix S3 Table S4
+
+```{r, results = T}
+
+overlap_glm <- glm(isd_turnover ~ categorical_fit, data = winning_fits, family = "binomial")
+
+overlap_glm_intercept <- glm(isd_turnover ~ 1, data = winning_fits, family = "binomial")
+
+anova(overlap_glm, overlap_glm_intercept, test = "Chi")
+
+```
+
+**Appendix S3 Table S4**. ANOVA table comparing binomial generalized linear models of the form ISD_turnover ~ best model type and ISD_turnover ~ 1. The model incorporating best model type is not superior to the intercept-only model (p = 0.9).
+
+
+\newpage
+# References
